@@ -1,3 +1,4 @@
+name: AWS CI/CD Pipeline
 
 on:
   push:
@@ -137,4 +138,3 @@ jobs:
           REGION=${{ secrets.AWS_REGION }}
           echo "🌐 Website URL:"
           echo http://$BUCKET_NAME.s3-website-$REGION.amazonaws.com
-
