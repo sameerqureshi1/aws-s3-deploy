@@ -115,24 +115,6 @@ jobs:
           aws s3 sync . s3://$BUCKET_NAME --delete
           echo "✅ Files synced!"
 
-      # 🌍 OPTIONAL: Make bucket publicly readable
-      - name: Make bucket public
-        run: |
-          echo "Applying public read access policy to $BUCKET_NAME"
-          aws s3api put-bucket-policy --bucket "$BUCKET_NAME" --policy '{
-            "Version": "2012-10-17",
-            "Statement": [
-              {
-                "Sid": "PublicReadGetObject",
-                "Effect": "Allow",
-                "Principal": "*",
-                "Action": "s3:GetObject",
-                "Resource": "arn:aws:s3:::'"$BUCKET_NAME"'/*"
-              }
-            ]
-          }'
-          echo "✅ Bucket policy applied — your site is now public."
-
       - name: Print website URL
         run: |
           REGION=${{ secrets.AWS_REGION }}
