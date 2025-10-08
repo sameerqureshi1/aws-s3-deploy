@@ -1,4 +1,4 @@
-name: AWS CI/CD Pipeline
+name: Simple AWS CI/CD with CloudFront
 
 on:
   push:
@@ -13,24 +13,84 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      - name: Create S3 bucket (if not exists)
+        run: |
+          BUCKET_NAME=simple-cicd-${{ github.run_id }}
+          REGION=${{ secrets.AWS_REGION }}
+
+          echo "Using bucket: $BUCKET_NAME"
+
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            echo "✅ Bucket exists."
+          else
+            echo "🪣 Creating new bucket..."
+            if [ "$REGION" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "$BUCKET_NAME"
+            else
+              aws s3api create-bucket \
+                --bucket "$BUCKET_NAME" \
+                --region "$REGION" \
+                --create-bucket-configuration LocationConstraint="$REGION"
+            fi
+            echo "✅ Bucket created."
+          fi
+
+          echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_ENV
+
       - name: Upload files to S3
         run: |
-          BUCKET_NAME=sameerqureshi-aws-ci-cd-18318432142
-          echo "Uploading files to S3 bucket..."
+          echo "🚀 Uploading files to S3..."
           aws s3 sync . s3://$BUCKET_NAME --delete
-        env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+          echo "✅ Files uploaded!"
 
-      - name: Invalidate CloudFront Cache
+      - name: Create CloudFront distribution with OAC
         run: |
-          echo "Invalidating CloudFront cache..."
-          aws cloudfront create-invalidation \
-            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
-            --paths "/*"
+          echo "🧩 Creating OAC..."
+          OAC_ID=$(aws cloudfront create-origin-access-control \
+            --origin-access-control-config '{
+              "Name": "OAC-'${BUCKET_NAME}'",
+              "Description": "OAC for S3 bucket",
+              "SigningProtocol": "sigv4",
+              "SigningBehavior": "always",
+              "OriginAccessControlOriginType": "s3"
+            }' \
+            --query 'OriginAccessControl.Id' --output text)
+
+          echo "✅ OAC Created: $OAC_ID"
+
+          echo "🌐 Creating CloudFront distribution..."
+          DIST_ID=$(aws cloudfront create-distribution \
+            --distribution-config '{
+              "CallerReference": "'$(date +%s)'",
+              "Comment": "Distribution for '${BUCKET_NAME}'",
+              "Enabled": true,
+              "Origins": {
+                "Items": [{
+                  "Id": "S3-'${BUCKET_NAME}'",
+                  "DomainName": "'${BUCKET_NAME}'.s3.amazonaws.com",
+                  "S3OriginConfig": { "OriginAccessIdentity": "" },
+                  "OriginAccessControlId": "'${OAC_ID}'"
+                }],
+                "Quantity": 1
+              },
+              "DefaultCacheBehavior": {
+                "TargetOriginId": "S3-'${BUCKET_NAME}'",
+                "ViewerProtocolPolicy": "redirect-to-https",
+                "TrustedSigners": { "Enabled": false, "Quantity": 0 },
+                "AllowedMethods": { "Quantity": 2, "Items": ["GET","HEAD"] },
+                "CachedMethods": { "Quantity": 2, "Items": ["GET","HEAD"] },
+                "ForwardedValues": { "QueryString": false, "Cookies": { "Forward": "none" } },
+                "MinTTL": 0
+              },
+              "ViewerCertificate": { "CloudFrontDefaultCertificate": true }
+            }' \
+            --query 'Distribution.Id' --output text)
+
+          echo "✅ CloudFront Distribution Created: $DIST_ID"
