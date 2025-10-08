@@ -22,7 +22,7 @@ jobs:
 
       - name: Upload files to S3
         run: |
-          BUCKET_NAME=sameerqureshi-aws-ci-cd
+          BUCKET_NAME=sameerqureshi-aws-ci-cd-18318432142
           echo "Uploading files to S3 bucket..."
           aws s3 sync . s3://$BUCKET_NAME --delete
         env:
